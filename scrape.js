@@ -2,54 +2,56 @@ const { chromium } = require("playwright");
 const fs = require("fs");
 
 (async () => {
-  const browser = await chromium.launch();
-  const page = await browser.newPage();
-
-  let results = [];
-
-  page.on("response", async (res) => {
-    const url = res.url();
-    if (url.includes("content") || url.includes("tray") || url.includes("collection")) {
-      try {
-        const json = await res.json();
-        const items = JSON.stringify(json);
-
-        const matches = items.match(/"title":"(.*?)".*?"image":"(.*?)"/g);
-        if (matches) {
-          matches.forEach(m => {
-            const t = m.match(/"title":"(.*?)"/);
-            const i = m.match(/"image":"(.*?)"/);
-            if (t && i) {
-              results.push({
-                title: t[1],
-                image: i[1]
-              });
-            }
-          });
-        }
-      } catch {}
-    }
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      "--disable-blink-features=AutomationControlled",
+      "--no-sandbox",
+      "--disable-setuid-sandbox"
+    ]
   });
 
-  await page.goto("https://www.hotstar.com/in/sports/cricket/tournaments/india-vs-new-zealand", {
-    waitUntil: "networkidle"
+  const context = await browser.newContext({
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+    viewport: { width: 1920, height: 1080 },
+    locale: "en-US"
   });
 
-  await page.waitForTimeout(12000);
+  const page = await context.newPage();
 
-  // Remove duplicates
-  const unique = [];
-  const seen = new Set();
-  for (const x of results) {
-    const k = x.title + x.image;
-    if (!seen.has(k)) {
-      seen.add(k);
-      unique.push(x);
-    }
+  await page.goto(
+    "https://www.hotstar.com/in/sports/cricket/tournaments/india-vs-new-zealand",
+    { waitUntil: "domcontentloaded" }
+  );
+
+  await page.waitForTimeout(15000);
+
+  // Scroll to force lazy load
+  for (let i = 0; i < 8; i++) {
+    await page.mouse.wheel(0, 2000);
+    await page.waitForTimeout(1200);
   }
 
-  fs.writeFileSync("data.json", JSON.stringify(unique, null, 2));
-  console.log("Saved:", unique.length);
+  const data = await page.evaluate(() => {
+    const out = [];
+
+    document.querySelectorAll("img[alt]").forEach(img => {
+      const title = img.alt?.trim();
+      const src = img.currentSrc || img.src;
+
+      if (!title || !src) return;
+      if (!src.includes("hotstar")) return;
+      if (title.toLowerCase().includes("hotstar")) return;
+
+      out.push({ title, image: src });
+    });
+
+    return out;
+  });
+
+  fs.writeFileSync("data.json", JSON.stringify(data, null, 2));
+  console.log("Saved:", data.length);
 
   await browser.close();
 })();
