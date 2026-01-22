@@ -1,0 +1,11 @@
+{
+  "name": "hotstar-scraper",
+  "version": "1.0.0",
+  "main": "scrape.js",
+  "scripts": {
+    "start": "node scrape.js"
+  },
+  "dependencies": {
+    "playwright": "^1.41.0"
+  }
+}
