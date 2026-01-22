@@ -1,46 +1,55 @@
 const { chromium } = require("playwright");
+const fs = require("fs");
 
 (async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch();
   const page = await browser.newPage();
 
-  await page.goto(
-    "https://www.hotstar.com/in/sports/cricket/tournaments/india-vs-new-zealand",
-    { waitUntil: "domcontentloaded" }
-  );
+  let results = [];
 
-  // Give time for JS
-  await page.waitForTimeout(8000);
+  page.on("response", async (res) => {
+    const url = res.url();
+    if (url.includes("content") || url.includes("tray") || url.includes("collection")) {
+      try {
+        const json = await res.json();
+        const items = JSON.stringify(json);
 
-  // Scroll to trigger lazy loading
-  await page.evaluate(async () => {
-    for (let i = 0; i < 5; i++) {
-      window.scrollBy(0, window.innerHeight);
-      await new Promise(r => setTimeout(r, 1500));
+        const matches = items.match(/"title":"(.*?)".*?"image":"(.*?)"/g);
+        if (matches) {
+          matches.forEach(m => {
+            const t = m.match(/"title":"(.*?)"/);
+            const i = m.match(/"image":"(.*?)"/);
+            if (t && i) {
+              results.push({
+                title: t[1],
+                image: i[1]
+              });
+            }
+          });
+        }
+      } catch {}
     }
   });
 
-  const data = await page.evaluate(() => {
-    const items = [];
-
-    document.querySelectorAll('img[alt]').forEach(img => {
-      const title = img.getAttribute("alt")?.trim();
-      const src =
-        img.getAttribute("src") ||
-        img.getAttribute("data-src");
-
-      if (!title || !src) return;
-
-      if (!src.includes("hotstar")) return;
-      if (title.toLowerCase().includes("hotstar")) return;
-
-      items.push({ title, image: src });
-    });
-
-    return items;
+  await page.goto("https://www.hotstar.com/in/sports/cricket/tournaments/india-vs-new-zealand", {
+    waitUntil: "networkidle"
   });
 
-  console.log(JSON.stringify(data, null, 2));
+  await page.waitForTimeout(12000);
+
+  // Remove duplicates
+  const unique = [];
+  const seen = new Set();
+  for (const x of results) {
+    const k = x.title + x.image;
+    if (!seen.has(k)) {
+      seen.add(k);
+      unique.push(x);
+    }
+  }
+
+  fs.writeFileSync("data.json", JSON.stringify(unique, null, 2));
+  console.log("Saved:", unique.length);
 
   await browser.close();
 })();
